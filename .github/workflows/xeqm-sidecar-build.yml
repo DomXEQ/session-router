@@ -53,35 +53,6 @@ jobs:
           restore-keys: |
             ccache-${{ matrix.arch }}-
 
-      - name: Pre-stage GMP from a reliable mirror
-        run: |
-          # gmplib.org frequently times out in CI and took the arm64 build down
-          # twice on this tag. Stage GMP from the GNU mirror into a LOCAL_MIRROR
-          # directory that the static-deps build checks before any remote mirror;
-          # gmplib.org stays as the build's own last-resort fallback. The pinned
-          # SHA512 matches cmake/session-deps/deps/libgmp.cmake and the build
-          # re-verifies the tarball, so a bad mirror copy is rejected.
-          set -u
-          mkdir -p dep-mirror
-          gmp=gmp-6.3.0.tar.xz
-          want=e85a0dab5195889948a3462189f0e0598d331d3457612e2d3350799dba2e244316d256f8161df5219538eb003e4b5343f989aaa00f96321559063ed8c8f29fd2
-          staged=
-          for url in \
-            "https://ftp.gnu.org/gnu/gmp/$gmp" \
-            "https://mirrors.kernel.org/gnu/gmp/$gmp"; do
-            echo "trying $url"
-            if curl -fSL --retry 5 --retry-all-errors --retry-delay 3 \
-                    --connect-timeout 30 --max-time 600 -o "dep-mirror/$gmp" "$url"; then
-              got=$(sha512sum "dep-mirror/$gmp" | cut -d' ' -f1)
-              if [ "$got" = "$want" ]; then echo "staged $gmp from $url"; staged=1; break; fi
-              echo "hash mismatch from $url (got $got)"
-            fi
-          done
-          if [ -z "$staged" ]; then
-            echo "could not pre-stage GMP; build will fall back to gmplib.org"
-            rm -f "dep-mirror/$gmp"
-          fi
-
       - name: Configure (static deps)
         run: |
           cmake -G Ninja -B build \
@@ -91,7 +62,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DLOCAL_MIRROR="${{ github.workspace }}/dep-mirror"
+            -DLOCAL_MIRROR=https://oxen.rocks/deps
 
       - name: Build
         run: ninja -C build session-router session-router-config
