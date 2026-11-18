@@ -1,0 +1,41 @@
+[router]
+# XEQM private network id. Leave this exactly as-is; a stock Session Router build
+# or the wrong netid will not see any XEQM relays.
+netid=xeqm
+
+# Where this relay keeps its runtime data (router contacts, keys, connection state).
+# One directory per instance. Replace INSTANCE with your node name (e.g. sn).
+data-dir=/var/lib/xeqm-session-router/INSTANCE
+
+# Your server's public IPv4 address and the UDP port other relays reach you on.
+# The port here must match [bind]:listen below and be open inbound in your firewall.
+public-ip=YOUR_PUBLIC_IPV4
+public-port=1190
+
+[network]
+# TUN interface name for this instance. Must be unique per instance on the host.
+ifname=sr-0
+
+[bind]
+# Address and UDP port this relay listens on. 0.0.0.0 binds all interfaces.
+listen=0.0.0.0:1190
+
+[oxend]
+# Control socket of YOUR running xeqm-d service node. This is how Session Router
+# fetches its service-node identity keys.
+#
+# Your core daemon MUST be started with a matching flag:
+#   --lmq-local-control=ipc://<YOUR_XEQM_DATA_DIR>/oxend.sock
+# Point rpc= at that same path.
+rpc=ipc:///var/lib/xeqm/INSTANCE/oxend.sock
+
+[bootstrap]
+# Signed XEQM relay contacts used to join the network on first start. Ships with
+# this package; the built-in upstream seeds do NOT serve the xeqm netid.
+add-node=/var/lib/xeqm-session-router/bootstrap.signed
+
+[logging]
+# print -> stdout, captured by the systemd journal (journalctl). Do NOT use
+# type=file without logrotate; plaintext file logs grow unbounded.
+type=print
+level=warn

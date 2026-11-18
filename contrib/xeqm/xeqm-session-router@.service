@@ -1,0 +1,27 @@
+[Unit]
+Description=XEQM Session Router relay (%i)
+# Session Router needs the core daemon up first so it can fetch its service-node
+# keys over the local oxend control socket. Add your core unit below so SR starts
+# after it, e.g. After=network-online.target xeqm-node.service
+# If SR starts before the core socket exists it simply retries (Restart=on-failure).
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run as the same unprivileged user that owns your core data dir and oxend.sock.
+User=xeqm
+Group=xeqm
+# A relay creates a TUN device and binds its link port; these two capabilities let
+# it do that without full root.
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+DeviceAllow=/dev/net/tun rw
+ExecStart=/opt/xeqm/bin/session-router -r -c /etc/xeqm-session-router/%i.ini
+Restart=on-failure
+RestartSec=10
+StateDirectory=xeqm-session-router/%i
+ReadWritePaths=/var/lib/xeqm-session-router/%i
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
