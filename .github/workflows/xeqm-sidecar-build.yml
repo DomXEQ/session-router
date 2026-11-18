@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git ref to build (default: this ref)
+        description: 'Git ref to build (default: this ref)'
         required: false
 
 permissions:
