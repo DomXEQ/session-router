@@ -1,0 +1,102 @@
+name: XEQM sidecar build
+
+# Reproducible static builds of the Session Router relay sidecar for XEQM, for both
+# Linux architectures, packaged with the operator kit in contrib/xeqm and published
+# with sha256 checksums. Runs on a sidecar-v* tag (attaches to that release) and on
+# manual dispatch (artifacts only).
+
+on:
+  push:
+    tags:
+      - 'sidecar-v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build (default: this ref)
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: static ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout (recursive)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build git ca-certificates pkg-config \
+            automake autoconf libtool patch python3 xz-utils ccache \
+            libsodium-dev libssl-dev libunbound-dev
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ matrix.arch }}-
+
+      - name: Configure (static deps)
+        run: |
+          cmake -G Ninja -B build \
+            -DBUILD_STATIC_DEPS=ON \
+            -DSROUTER_NATIVE_BUILD=OFF \
+            -DWITH_SYSTEMD=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: ninja -C build session-router session-router-config
+
+      - name: Verify portable (static) linkage
+        run: contrib/ci/check-static-libs.sh build
+
+      - name: Confirm XEQM build
+        run: ./build/session-router --version
+
+      - name: Package
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            ver="${GITHUB_REF_NAME}"
+          else
+            ver="$(git describe --tags --always)"
+          fi
+          contrib/xeqm/make-package.sh "${{ matrix.arch }}" build "$ver" "$PWD/dist"
+          ls -la dist
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: session-router-xeqm-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # First job to reach here creates the release; the other just uploads.
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "XEQM Session Router sidecar (non-enforcing). Verify downloads against the attached .sha256 files." \
+            2>/dev/null || true
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
