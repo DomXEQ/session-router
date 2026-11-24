@@ -1,0 +1,33 @@
+# Session Router relay config for the Docker setup in this directory.
+# Copy to session-router.ini next to docker-compose.sr.yml and set public-ip.
+
+[router]
+# XEQM network id. Leave as it is.
+netid=xeqm
+# Relay state. This path is the sr-state volume in the compose file.
+data-dir=/var/lib/xeqm-session-router/snode1
+# Your server's public IPv4 address, and the UDP port other relays reach you on.
+# The relay does not start without a public address.
+public-ip=REPLACE_WITH_PUBLIC_IPV4
+public-port=1190
+
+[network]
+ifname=sr0
+
+[bind]
+# Inside the container; the compose file publishes this port to the host.
+listen=0.0.0.0:1190
+
+[oxend]
+# The node's control socket on the shared /data volume. Must match the node's
+# --lmq-local-control=ipc:///data/oxend.sock in the compose file.
+rpc=ipc:///data/oxend.sock
+
+# The [bootstrap] section is written by the image's entrypoint, which points the
+# relay at the signed relay list in the image (or at your override, if you mount
+# one). Leave it out of this file.
+
+[logging]
+# print -> container log (docker logs). Do not use type=file here.
+type=print
+level=warn

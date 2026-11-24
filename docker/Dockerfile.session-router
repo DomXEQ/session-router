@@ -1,0 +1,53 @@
+# =============================================================================
+# XEQM Session Router relay -> runtime image
+#
+# Installs the released relay package instead of compiling it, so the image
+# carries exactly the binaries and the signed bootstrap list of the release
+# named in SR_TAG, pinned by sha256. To move to a new release, change SR_TAG
+# and both checksums together (they are on the release page).
+#
+# Needs BuildKit (the default in current Docker), which sets TARGETARCH.
+# Both linux/amd64 and linux/arm64 are supported.
+# =============================================================================
+
+FROM ubuntu:22.04 AS fetch
+ARG TARGETARCH
+ARG SR_TAG=sidecar-v1.1.2
+ARG SR_SHA256_AMD64=7ff73d6728e4370ad4370a49b98ebed28c5f9c723313303a3b60ed053fe3d7ee
+ARG SR_SHA256_ARM64=9584c09a922e09a2d1321a45f40523d1280726fb480440553354f69ef849d7b4
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) sum="${SR_SHA256_AMD64}" ;; \
+      arm64) sum="${SR_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: '${TARGETARCH}' (build with BuildKit on amd64 or arm64)" >&2; exit 1 ;; \
+    esac; \
+    pkg="session-router-xeqm-linux-${TARGETARCH}-${SR_TAG}"; \
+    curl -fsSL -o /tmp/pkg.tar.xz \
+      "https://github.com/XEQMLabs/session-router/releases/download/${SR_TAG}/${pkg}.tar.xz"; \
+    echo "${sum}  /tmp/pkg.tar.xz" | sha256sum -c -; \
+    mkdir /pkg; \
+    tar -xJf /tmp/pkg.tar.xz -C /pkg --strip-components=1; \
+    cd /pkg; sha256sum -c SHA256SUMS
+
+# ---- runtime ----
+# The release binaries are static apart from glibc and libstdc++, which the base
+# image already has.
+FROM ubuntu:22.04
+COPY --from=fetch /pkg/bin/session-router /pkg/bin/session-router-config /opt/xeqm/bin/
+# The signed relay list the package ships (contrib/bootstrap/xeqm.signed in this
+# repository). The relay verifies its signature when it loads it.
+COPY --from=fetch /pkg/bootstrap.signed /opt/xeqm/share/session-router/bootstrap.signed
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
+
+# Runs as root inside the container, for two reasons:
+#  - the xeqm-node image runs as root, and the control socket it creates is
+#    readable by root only;
+#  - Docker gives cap_add capabilities to root only, and the relay needs
+#    NET_ADMIN to create its TUN device.
+# The container still has only Docker's default capabilities plus NET_ADMIN.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD []

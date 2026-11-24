@@ -1,0 +1,70 @@
+# =============================================================================
+# XEQM service node + Session Router relay, as two containers.
+#
+# The relay is a SERVICE NODE companion: it reads the node's service node keys
+# over the node's control socket and announces itself as that node. Do not run it
+# next to a seed node or a plain full node; they have no service node identity.
+# This file assumes a service node whose keys are already in ./data (or a new one
+# you will register). Registration and staking are not covered here.
+#
+# The two containers share the node's data directory so the relay can reach the
+# node's control socket (ipc:///data/oxend.sock). That socket gives full control of
+# the node: keep it a socket file on this shared directory, never a published port.
+# =============================================================================
+
+services:
+  xeqm-node:
+    image: ghcr.io/xeqmlabs/xeqm-node:v1.1.4
+    container_name: xeqm-node
+    restart: unless-stopped
+    volumes:
+      - ./data:/data                         # chain, service node keys, and the control socket
+      - ./xeqm.conf:/data/xeqm.conf:ro       # your service node config (see README)
+    ports:
+      - "9230:9230/tcp"                      # p2p
+      - "9232:9232/tcp"                      # quorumnet (service node to service node)
+    command:
+      - --non-interactive
+      - --data-dir=/data
+      - --config-file=/data/xeqm.conf
+      # The relay connects to this socket to read the service node keys and to ping.
+      - --lmq-local-control=ipc:///data/oxend.sock
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  session-router:
+    # Built locally from this directory; no image is published yet.
+    build:
+      context: .
+      dockerfile: Dockerfile.session-router
+    image: xeqm-session-router:1.1.2
+    container_name: xeqm-session-router
+    # Keep this line. Without a restart policy the relay does not come back after a
+    # reboot or a Docker restart, and the node goes back to reporting no relay.
+    restart: unless-stopped
+    depends_on:
+      - xeqm-node
+    cap_add:
+      - NET_ADMIN                            # the relay creates a TUN device
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./data:/data                         # SAME directory as the node -> /data/oxend.sock
+      - sr-state:/var/lib/xeqm-session-router/snode1
+      - ./session-router.ini:/etc/xeqm-session-router/snode1.ini:ro
+      # The image carries the signed relay list. Mount a file here only to override it:
+      # - ./bootstrap.signed:/etc/xeqm-session-router/bootstrap.signed:ro
+    ports:
+      - "1190:1190/udp"                      # relay port; open it in your firewall too
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  sr-state:
